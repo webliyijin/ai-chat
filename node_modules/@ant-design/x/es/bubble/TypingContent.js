@@ -1,0 +1,38 @@
+import { clsx } from 'clsx';
+import React from 'react';
+import { useTyping } from "./hooks/useTyping";
+export const TypingContent = ({
+  prefixCls,
+  streaming,
+  content,
+  typing,
+  onTyping,
+  onTypingComplete
+}) => {
+  const {
+    renderedData,
+    animating,
+    memoedAnimationCfg
+  } = useTyping({
+    streaming,
+    content,
+    typing,
+    onTyping,
+    onTypingComplete
+  });
+  const {
+    effect
+  } = memoedAnimationCfg;
+  // 渲染元素
+  const elements = renderedData.map(item => effect === 'fade-in' && !item.done ? /*#__PURE__*/React.createElement("span", {
+    key: item.id,
+    className: "fade-in"
+  }, item.text) : item.text);
+  const isTyping = typing === true ? false : effect === 'typing';
+  return /*#__PURE__*/React.createElement("div", {
+    className: clsx({
+      [`${prefixCls}-typing`]: isTyping && animating,
+      [`${prefixCls}-fade-in`]: !isTyping
+    })
+  }, elements);
+};

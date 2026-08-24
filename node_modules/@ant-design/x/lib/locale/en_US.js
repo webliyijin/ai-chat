@@ -1,0 +1,43 @@
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+const localeValues = {
+  locale: 'en',
+  Conversations: {
+    create: 'New chat'
+  },
+  Sender: {
+    stopLoading: 'Stop loading',
+    speechRecording: 'Speech recording'
+  },
+  Actions: {
+    feedbackLike: 'Like',
+    feedbackDislike: 'Dislike',
+    audio: 'Play audio',
+    audioRunning: 'Audio playing',
+    audioError: 'Playback error',
+    audioLoading: 'Loading audio'
+  },
+  Bubble: {
+    editableOk: 'OK',
+    editableCancel: 'Cancel'
+  },
+  Mermaid: {
+    zoomIn: 'Zoom in',
+    zoomOut: 'Zoom out',
+    zoomReset: 'Reset',
+    download: 'Download',
+    code: 'Code',
+    image: 'Image'
+  },
+  Folder: {
+    selectFile: 'Please select a file',
+    loadError: 'Failed to load file',
+    noService: 'File content service not configured',
+    loadFailed: 'Failed to load file'
+  }
+};
+var _default = exports.default = localeValues;

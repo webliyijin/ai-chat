@@ -1,0 +1,60 @@
+import type { ConfigProviderProps as AntdConfigProviderProps, ThemeConfig } from 'antd';
+import React from 'react';
+import type { AnyObject, ShortcutKeys } from '../_util/type';
+import type { ActionsProps } from '../actions/interface';
+import type { AttachmentsProps } from '../attachments';
+import type { BubbleProps } from '../bubble';
+import type { CodeHighlighterProps } from '../code-highlighter';
+import type { ConversationsProps } from '../conversations';
+import type { FileCardProps } from '../file-card';
+import type { FolderProps } from '../folder';
+import { Locale } from '../locale';
+import type { MermaidProps } from '../mermaid';
+import type { PromptsProps } from '../prompts';
+import type { SenderProps } from '../sender';
+import type { SourcesProps } from '../sources';
+import type { SuggestionProps } from '../suggestion';
+import type { MappingAlgorithm, OverrideToken } from '../theme/interface';
+import type { ThinkProps } from '../think';
+import type { ThoughtChainProps } from '../thought-chain';
+import type { WelcomeProps } from '../welcome';
+interface BaseComponentConfig {
+    style: React.CSSProperties;
+    styles: Record<string, React.CSSProperties>;
+    className: string;
+    classNames: Record<string, string>;
+}
+export interface XComponentConfig extends BaseComponentConfig {
+    shortcutKeys: Record<string, ShortcutKeys>;
+}
+type ComponentConfig<CompProps extends AnyObject, PickType extends keyof CompProps = keyof BaseComponentConfig> = Pick<CompProps, PickType>;
+export interface XComponentsConfig {
+    bubble?: ComponentConfig<BubbleProps>;
+    conversations?: ComponentConfig<ConversationsProps, keyof XComponentConfig>;
+    prompts?: ComponentConfig<PromptsProps>;
+    sender?: ComponentConfig<SenderProps>;
+    suggestion?: ComponentConfig<SuggestionProps>;
+    thoughtChain?: ComponentConfig<ThoughtChainProps>;
+    attachments?: ComponentConfig<AttachmentsProps>;
+    welcome?: ComponentConfig<WelcomeProps>;
+    actions?: ComponentConfig<ActionsProps>;
+    think?: ComponentConfig<ThinkProps>;
+    fileCard?: ComponentConfig<FileCardProps>;
+    folder?: ComponentConfig<FolderProps>;
+    sources?: ComponentConfig<SourcesProps>;
+    codeHighlighter?: ComponentConfig<CodeHighlighterProps>;
+    mermaid?: ComponentConfig<MermaidProps>;
+}
+type ComponentsConfig = {
+    [key in keyof OverrideToken]?: OverrideToken[key] & {
+        algorithm?: boolean | MappingAlgorithm | MappingAlgorithm[];
+    };
+};
+export interface XProviderProps extends XComponentsConfig, Omit<AntdConfigProviderProps, 'theme' | 'locale'> {
+    theme?: Omit<ThemeConfig, 'components'> & {
+        components?: ThemeConfig['components'] & ComponentsConfig;
+    };
+    locale?: Locale;
+}
+declare const XProviderContext: React.Context<XProviderProps>;
+export default XProviderContext;

@@ -1,0 +1,21 @@
+import type { CSSMotionProps } from '@rc-component/motion';
+import type { ConfigProviderProps, GetProp } from 'antd';
+import React from 'react';
+import type { GroupInfoType } from './hooks/useGroupable';
+export interface GroupTitleProps {
+    children?: React.ReactNode;
+    className?: string;
+}
+interface GroupTitleContextType {
+    prefixCls?: GetProp<ConfigProviderProps, 'prefixCls'>;
+    enableCollapse: boolean;
+    expandedKeys: string[];
+    onItemExpand: ((curKey: string) => void) | undefined;
+    collapseMotion: CSSMotionProps;
+    groupInfo: Omit<GroupInfoType, 'collapsible'> & {
+        collapsible: boolean;
+    };
+}
+export declare const GroupTitleContext: React.Context<GroupTitleContextType>;
+declare const GroupTitle: React.FC<GroupTitleProps>;
+export default GroupTitle;

@@ -1,0 +1,190 @@
+"use strict";
+
+var _interopRequireDefault = require("@babel/runtime/helpers/interopRequireDefault").default;
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+var _util = require("@rc-component/util");
+var _clsx = require("clsx");
+var _react = _interopRequireDefault(require("react"));
+var _useXComponentConfig = _interopRequireDefault(require("../_util/hooks/use-x-component-config"));
+var _xProvider = require("../x-provider");
+var _context = require("./context");
+var _DropArea = _interopRequireDefault(require("./DropArea"));
+var _FileList = _interopRequireDefault(require("./FileList"));
+var _PlaceholderUploader = _interopRequireDefault(require("./PlaceholderUploader"));
+var _SilentUploader = _interopRequireDefault(require("./SilentUploader"));
+var _style = _interopRequireDefault(require("./style"));
+const Attachments = /*#__PURE__*/_react.default.forwardRef((props, ref) => {
+  const {
+    prefixCls: customizePrefixCls,
+    rootClassName,
+    className,
+    style,
+    items,
+    children,
+    getDropContainer,
+    placeholder,
+    onChange,
+    onRemove,
+    overflow,
+    disabled,
+    maxCount,
+    classNames = {},
+    styles = {},
+    ...uploadProps
+  } = props;
+
+  // ============================ PrefixCls ============================
+  const {
+    getPrefixCls,
+    direction
+  } = (0, _xProvider.useXProviderContext)();
+  const prefixCls = getPrefixCls('attachment', customizePrefixCls);
+
+  // ===================== Component Config =========================
+  const contextConfig = (0, _useXComponentConfig.default)('attachments');
+  const {
+    classNames: contextClassNames,
+    styles: contextStyles
+  } = contextConfig;
+  const {
+    root: rootOfClassNames,
+    ...otherClassNames
+  } = classNames;
+  const {
+    root: rootOfStyles,
+    ...otherStyles
+  } = styles;
+
+  // ============================= Ref =============================
+  const containerRef = _react.default.useRef(null);
+  const uploadRef = _react.default.useRef(null);
+  _react.default.useImperativeHandle(ref, () => ({
+    nativeElement: containerRef.current,
+    fileNativeElement: uploadRef.current?.nativeElement?.querySelector('input[type="file"]'),
+    upload: file => {
+      const fileInput = uploadRef.current?.nativeElement?.querySelector('input[type="file"]');
+      if (fileInput) {
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        fileInput.files = dataTransfer.files;
+        fileInput.dispatchEvent(new Event('change', {
+          bubbles: true
+        }));
+      }
+    },
+    select: options => {
+      const fileInput = uploadRef.current?.nativeElement?.querySelector('input[type="file"]');
+      if (fileInput) {
+        fileInput.multiple = options?.multiple ?? false;
+        const acceptValue = options?.accept || props.accept;
+        fileInput.accept = typeof acceptValue === 'string' ? acceptValue : acceptValue?.format || '';
+        fileInput.click();
+      }
+    }
+  }));
+
+  // ============================ Style ============================
+  const [hashId, cssVarCls] = (0, _style.default)(prefixCls);
+  const cssinjsCls = (0, _clsx.clsx)(hashId, cssVarCls);
+
+  // ============================ Upload ============================
+  const [fileList, setFileList] = (0, _util.useControlledState)([], items);
+  const triggerChange = (0, _util.useEvent)(info => {
+    setFileList(info.fileList);
+    onChange?.(info);
+  });
+  const mergedUploadProps = {
+    ...uploadProps,
+    fileList,
+    maxCount,
+    onChange: triggerChange
+  };
+  const onItemRemove = item => Promise.resolve(typeof onRemove === 'function' ? onRemove(item) : onRemove).then(ret => {
+    // Prevent removing file
+    if (ret === false) {
+      return;
+    }
+    const newFileList = fileList.filter(fileItem => fileItem.uid !== item.uid);
+    triggerChange({
+      file: {
+        ...item,
+        status: 'removed'
+      },
+      fileList: newFileList
+    });
+  });
+  // ============================ Render ============================
+  let renderChildren;
+  const getPlaceholderNode = (type, props, ref) => {
+    const placeholderContent = typeof placeholder === 'function' ? placeholder(type) : placeholder;
+    return /*#__PURE__*/_react.default.createElement(_PlaceholderUploader.default, {
+      placeholder: placeholderContent,
+      upload: mergedUploadProps,
+      prefixCls: prefixCls,
+      className: (0, _clsx.clsx)(contextClassNames.placeholder, classNames.placeholder),
+      style: {
+        ...contextStyles.placeholder,
+        ...styles.placeholder,
+        ...props?.style
+      },
+      ref: ref
+    });
+  };
+  if (children) {
+    renderChildren = /*#__PURE__*/_react.default.createElement(_react.default.Fragment, null, /*#__PURE__*/_react.default.createElement(_SilentUploader.default, {
+      upload: mergedUploadProps,
+      style: rootOfStyles,
+      className: (0, _clsx.clsx)(rootClassName, rootOfClassNames),
+      ref: uploadRef
+    }, children), /*#__PURE__*/_react.default.createElement(_DropArea.default, {
+      getDropContainer: getDropContainer,
+      prefixCls: prefixCls,
+      style: rootOfStyles,
+      className: (0, _clsx.clsx)(cssinjsCls, rootClassName, rootOfClassNames)
+    }, getPlaceholderNode('drop')));
+  } else {
+    const hasFileList = fileList.length > 0;
+    renderChildren = /*#__PURE__*/_react.default.createElement("div", {
+      className: (0, _clsx.clsx)(prefixCls, cssinjsCls, {
+        [`${prefixCls}-rtl`]: direction === 'rtl'
+      }, className, rootClassName, rootOfClassNames),
+      style: {
+        ...styles.root,
+        ...style
+      },
+      dir: direction || 'ltr',
+      ref: containerRef
+    }, /*#__PURE__*/_react.default.createElement(_FileList.default, {
+      prefixCls: prefixCls,
+      items: fileList,
+      onRemove: onItemRemove,
+      overflow: overflow,
+      upload: mergedUploadProps,
+      classNames: otherClassNames,
+      style: !hasFileList ? {
+        display: 'none'
+      } : {},
+      styles: otherStyles
+    }), getPlaceholderNode('inline', hasFileList ? {
+      style: {
+        display: 'none'
+      }
+    } : undefined, uploadRef), /*#__PURE__*/_react.default.createElement(_DropArea.default, {
+      getDropContainer: getDropContainer || (() => containerRef.current),
+      prefixCls: prefixCls,
+      className: cssinjsCls
+    }, getPlaceholderNode('drop')));
+  }
+  return /*#__PURE__*/_react.default.createElement(_context.AttachmentContext.Provider, {
+    value: {
+      disabled
+    }
+  }, renderChildren);
+});
+if (process.env.NODE_ENV !== 'production') {
+  Attachments.displayName = 'Attachments';
+}
+var _default = exports.default = Attachments;

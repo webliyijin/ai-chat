@@ -1,0 +1,166 @@
+"use strict";
+
+var _interopRequireDefault = require("@babel/runtime/helpers/interopRequireDefault").default;
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.default = void 0;
+var _extends2 = _interopRequireDefault(require("@babel/runtime/helpers/extends"));
+var _pickAttrs = _interopRequireDefault(require("@rc-component/util/lib/pickAttrs"));
+var _get = _interopRequireDefault(require("@rc-component/util/lib/utils/get"));
+var _antd = require("antd");
+var _clsx = require("clsx");
+var _react = _interopRequireDefault(require("react"));
+var _context = require("../context");
+function getComponent(components, path, defaultComponent) {
+  return (0, _get.default)(components, path) || defaultComponent;
+}
+const TextArea = /*#__PURE__*/_react.default.forwardRef((_, ref) => {
+  const {
+    value,
+    onChange,
+    onKeyUp,
+    onKeyDown,
+    onPaste,
+    onPasteFile,
+    disabled,
+    readOnly,
+    submitType = 'enter',
+    prefixCls,
+    styles = {},
+    classNames = {},
+    autoSize,
+    components,
+    triggerSend,
+    placeholder,
+    onFocus,
+    onBlur,
+    ...restProps
+  } = _react.default.useContext(_context.SenderContext);
+  const inputRef = _react.default.useRef(null);
+  const insert = (insertValue, positions = 'cursor') => {
+    const textArea = inputRef.current?.resizableTextArea?.textArea;
+    // 获取当前文本内容
+    const currentText = textArea.value;
+    let startPos = currentText.length;
+    let endPos = currentText.length;
+    if (positions === 'cursor') {
+      startPos = textArea?.selectionStart;
+      endPos = textArea?.selectionEnd;
+    }
+    if (positions === 'start') {
+      startPos = 0;
+      endPos = 0;
+    }
+
+    // 在光标位置插入新文本
+    textArea.value = currentText.substring(0, startPos) + insertValue + currentText.substring(endPos, currentText.length);
+
+    // 设置新的光标位置
+    textArea.selectionStart = startPos + insertValue.length;
+    textArea.selectionEnd = startPos + insertValue.length;
+
+    // 重新聚焦到textarea
+    textArea.focus();
+    onChange?.(textArea.value);
+  };
+  const clear = () => {
+    onChange?.('');
+  };
+  const getValue = () => {
+    return {
+      value: value || '',
+      slotConfig: []
+    };
+  };
+  _react.default.useImperativeHandle(ref, () => {
+    return {
+      nativeElement: inputRef.current?.resizableTextArea?.textArea,
+      focus: inputRef.current?.focus,
+      blur: inputRef.current?.blur,
+      insert,
+      clear,
+      getValue
+    };
+  });
+
+  // ============================ Submit ============================
+  const isCompositionRef = _react.default.useRef(false);
+  const onInternalCompositionStart = () => {
+    isCompositionRef.current = true;
+  };
+  const onInternalCompositionEnd = () => {
+    isCompositionRef.current = false;
+  };
+  const onInternalKeyDown = e => {
+    const eventRes = onKeyDown?.(e);
+    const {
+      key,
+      shiftKey,
+      ctrlKey,
+      altKey,
+      metaKey
+    } = e;
+    if (isCompositionRef.current || key !== 'Enter' || eventRes === false) {
+      return;
+    }
+
+    // 处理Enter键提交
+    if (key === 'Enter') {
+      const isModifierPressed = ctrlKey || altKey || metaKey;
+      const shouldSubmit = submitType === 'enter' && !shiftKey && !isModifierPressed || submitType === 'shiftEnter' && shiftKey && !isModifierPressed;
+      if (shouldSubmit) {
+        e.preventDefault();
+        triggerSend?.();
+        return;
+      }
+    }
+  };
+
+  // ============================ Paste =============================
+  const onInternalPaste = e => {
+    // Get files
+    const files = e.clipboardData?.files;
+    const text = e.clipboardData?.getData('text/plain');
+    if (!text && files?.length && onPasteFile) {
+      onPasteFile(files);
+      e.preventDefault();
+    }
+    onPaste?.(e);
+  };
+  const InputTextArea = getComponent(components, ['input'], _antd.Input.TextArea);
+  const domProps = (0, _pickAttrs.default)(restProps, {
+    attr: true,
+    aria: true,
+    data: true
+  });
+  const inputProps = {
+    ...domProps,
+    ref: inputRef
+  };
+  const mergeOnChange = event => {
+    onChange?.(event.target.value, event);
+  };
+  return /*#__PURE__*/_react.default.createElement(InputTextArea, (0, _extends2.default)({}, inputProps, {
+    disabled: disabled,
+    style: styles.input,
+    className: (0, _clsx.clsx)(`${prefixCls}-input`, classNames.input),
+    autoSize: autoSize,
+    value: value,
+    onChange: mergeOnChange,
+    onKeyUp: onKeyUp,
+    onCompositionStart: onInternalCompositionStart,
+    onCompositionEnd: onInternalCompositionEnd,
+    onKeyDown: onInternalKeyDown,
+    onPaste: onInternalPaste,
+    variant: "borderless",
+    readOnly: readOnly,
+    placeholder: placeholder,
+    onFocus: onFocus,
+    onBlur: onBlur
+  }));
+});
+if (process.env.NODE_ENV !== 'production') {
+  TextArea.displayName = 'TextArea';
+}
+var _default = exports.default = TextArea;
