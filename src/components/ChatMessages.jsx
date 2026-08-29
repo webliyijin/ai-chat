@@ -56,6 +56,7 @@ const ChatMessages = memo(function ChatMessages({
   const bubbleListRef = useRef(null);
   const smoothScrollRef = useRef(false);
   const anchorLockRef = useRef(false);
+  const anchorContainerRef = useRef(null);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
 
   // ==================== 锚点定位状态 ====================
@@ -224,6 +225,47 @@ const ChatMessages = memo(function ChatMessages({
     },
     [handleCopy, stripMarkdown]
   );
+
+  // 将锚点容器的滚动条滚动到激活项位置
+  // 激活的是最后一条时直接贴底（会话初始化默认激活最后一条，对应阅读位置在底部）；
+  // 否则尽量居中。手动计算只滚动锚点容器，避免 scrollIntoView 误滚动 chat-body
+  const scrollAnchorToActive = useCallback(() => {
+    const el = anchorContainerRef.current;
+    if (!el || !activeAnchor) return;
+    const activeEl = el.querySelector('.chat-anchor-item.active');
+    if (!activeEl) return;
+    const elRect = el.getBoundingClientRect();
+    const itemRect = activeEl.getBoundingClientRect();
+    // 激活项已完全可见时无需滚动
+    if (itemRect.top >= elRect.top && itemRect.bottom <= elRect.bottom) return;
+    const items = el.querySelectorAll('.chat-anchor-item');
+    // 激活最后一条：滚动到最底部
+    if (activeEl === items[items.length - 1]) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    // 其他位置：尽量居中
+    const targetTop =
+      el.scrollTop + (itemRect.top - elRect.top) - (el.clientHeight - itemRect.height) / 2;
+    el.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+  }, [activeAnchor]);
+
+  // 激活锚点变化时，锚点容器滚动条跟随到激活项位置
+  useEffect(() => {
+    scrollAnchorToActive();
+  }, [scrollAnchorToActive]);
+
+  // hover 展开锚点面板后，锚点容器滚动条根据激活锚点位置滚动到对应位置
+  // 若尚无激活锚点（从未滚动过消息），先默认激活最后一条 user 消息，
+  // 激活变化会触发上面的"激活锚点变化"effect 完成滚动
+  const handleAnchorEnter = useCallback(() => {
+    if (!activeAnchor) {
+      const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+      if (lastUser) setActiveAnchor(lastUser.key);
+      return;
+    }
+    scrollAnchorToActive();
+  }, [activeAnchor, messages, scrollAnchorToActive]);
 
   // 点击锚点：平滑滚动，将目标消息定位到可视区域顶部
   // 跳转滚动期间锁定高亮，滚动结束后恢复跟随
@@ -470,7 +512,11 @@ const ChatMessages = memo(function ChatMessages({
 
         {/* 锚点定位：默认只展示短横线，hover 面板展开显示所有消息（名称 + 横线） */}
         {messages.length > 0 && (
-          <div className="chat-anchor">
+          <div
+            className="chat-anchor"
+            ref={anchorContainerRef}
+            onMouseEnter={handleAnchorEnter}
+          >
               {messages
                 .filter((msg) => msg.role === 'user')
                 .map((msg) => {
