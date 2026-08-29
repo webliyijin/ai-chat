@@ -1,5 +1,0 @@
-import React from 'react';
-import type { SenderProps } from './interface';
-export declare const SenderContext: React.Context<SenderProps & {
-    triggerSend?: (() => void) | undefined;
-}>;

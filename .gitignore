@@ -20,6 +20,9 @@ lerna-debug.log*
 .env.local
 .env.*.local
 
+# 工具数据
+.codebuddy/
+
 # 编辑器 / IDE
 .vscode/*
 !.vscode/extensions.json
