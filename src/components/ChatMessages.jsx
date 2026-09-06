@@ -34,6 +34,268 @@ import MarkdownBlock from './MarkdownBlock';
 
 const { Title } = Typography;
 
+// ==================== 视口懒渲染（仅针对 AI 富内容） ====================
+// 设计目标：锚点依赖每条消息的固定节点（.chat-msg-item 由 Bubble.List 恒久保留，
+// scrollIntoView 仍可精确跳转）。富内容（深度思考 / Markdown / 操作栏）体积大，
+// 只对“进入可视区 + 上下缓冲带”的消息真正渲染；离开后卸载，回退为轻量占位节点。
+// 占位高度优先取该消息最近一次真实渲染时测量到的高度，避免卸载导致滚动总高跳动。
+
+// 可视区上下缓冲（px），提前加载避免滚动时出现空白
+const LAZY_VIEW_BUFFER = 520;
+
+// 富内容真实高度缓存：msg.key -> { sig, h }；sig 由内容长度构成，内容变化时回退估算
+const richHeightCache = new Map();
+// 深度思考折叠状态缓存：懒渲染卸载/重挂后保持用户的展开/收起选择
+const thinkExpandedCache = new Map();
+
+const contentSignature = (msg) => `${(msg.content || '').length}:${(msg.thinkContent || '').length}`;
+
+// 无真实高度时的估算值（按文本量粗估行数，代码块折算成多行）
+const estimateRichHeight = (msg) => {
+  const measure = (text) => {
+    const t = (text || '')
+      .replace(/```[\s\S]*?```/g, '\n\n代码块\n\n')
+      .replace(/\s+/g, ' ');
+    return Math.max(1, Math.ceil(t.length / 36));
+  };
+  const rows = measure(msg.content) + (msg.thinkContent ? measure(msg.thinkContent) + 3 : 0);
+  // 行高约 26px + 内边距与底部操作栏
+  return Math.min(Math.max(Math.round(rows * 26) + 48, 72), 4000);
+};
+
+// 占位预览文本（去掉 markdown 标记，便于扫读）
+const getLazyExcerpt = (msg) => {
+  const think = msg.thinkContent ? `[思考] ${msg.thinkContent}` : '';
+  const raw = think ? `${think} ` : '';
+  return (raw + (msg.content || ''))
+    .replace(/```[\s\S]*?```/g, '[代码块]')
+    .replace(/[#*`>_~\[\]\(\)!|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+/**
+ * AI 消息富内容（完整渲染版）：深度思考 + 答案 Markdown + 操作栏。
+ * 折叠思考区块时把状态写入缓存，供懒渲染重新挂载后恢复。
+ */
+function AiBubbleContent({
+  msg,
+  isCancelled,
+  isLoading,
+  speakingKey,
+  feedback,
+  onFeedback,
+  onRegenerate,
+  onCopy,
+  onSpeak,
+  onShare,
+  onContinue,
+}) {
+  const [thinkExpanded, setThinkExpanded] = useState(
+    () => thinkExpandedCache.get(msg.key) ?? true
+  );
+  const handleThinkExpand = useCallback(
+    (expanded) => {
+      setThinkExpanded(expanded);
+      thinkExpandedCache.set(msg.key, expanded);
+    },
+    [msg.key]
+  );
+
+  return (
+    <div style={{ maxWidth: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* 深度思考区块：有 thinkContent 则展示 */}
+      {msg.thinkContent ? (
+        <Think
+          title="深度思考"
+          loading={!msg.content}
+          blink={!msg.content}
+          expanded={thinkExpanded}
+          onExpand={handleThinkExpand}
+        >
+          {msg.thinkContent}
+        </Think>
+      ) : null}
+      {/* 思考中占位（think 和 content 都为空，正在等待） */}
+      {!msg.thinkContent && !msg.content ? (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '12px 0',
+          color: '#a855f7',
+        }}>
+          <Spin size="small" />
+          <span style={{ fontSize: 13, color: '#7c3aed' }}>
+            正在分析问题...
+          </span>
+        </div>
+      ) : null}
+      {/* 答案内容 */}
+      <MarkdownBlock content={msg.content} />
+      {/* 点赞 / 点踩 — 仅在 AI 回答完成后显示 */}
+      <Flex alignItems="center" justify="space-between">
+        <Flex>
+          {msg.content && !isLoading ? (
+            <Flex
+              style={{ marginTop: 8, paddingTop: 6 }}
+              alignItems="center"
+              gap={2}
+            >
+              <Tooltip title="复制">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CopyOutlined />}
+                  onClick={() => onCopy(msg.content)}
+                />
+              </Tooltip>
+              <Tooltip title="点赞">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={
+                    feedback === 'like'
+                      ? <LikeFilled style={{ color: '#6366f1' }} />
+                      : <LikeOutlined />
+                  }
+                  onClick={() => onFeedback(msg.key, 'like')}
+                />
+              </Tooltip>
+              <Tooltip title="点踩">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={
+                    feedback === 'dislike'
+                      ? <DislikeFilled style={{ color: '#ef4444' }} />
+                      : <DislikeOutlined />
+                  }
+                  onClick={() => onFeedback(msg.key, 'dislike')}
+                />
+              </Tooltip>
+              <Tooltip title="重新生成">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  onClick={() => onRegenerate(msg.key)}
+                />
+              </Tooltip>
+              <Tooltip title="分享">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ShareAltOutlined />}
+                  onClick={() => onShare(msg.content)}
+                />
+              </Tooltip>
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'speak',
+                      icon: <SoundOutlined />,
+                      label: speakingKey === msg.key ? '停止朗读' : '朗读',
+                    },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === 'speak') onSpeak(msg.key, msg.content);
+                  },
+                }}
+                trigger={['click']}
+                placement="bottomRight"
+              >
+                <Button type="text" size="small" icon={<MoreOutlined />} />
+              </Dropdown>
+            </Flex>
+          ) : null}
+        </Flex>
+        <Flex>
+          {/* 继续生成：取消后显示在回答下方 */}
+          {isCancelled && !isLoading && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-start',
+              padding: '8px 0 4px 48px',
+            }}>
+              <Button
+                type="primary"
+                size="small"
+                icon={<RedoOutlined />}
+                onClick={onContinue}
+              >
+                继续生成
+              </Button>
+            </div>
+          )}
+        </Flex>
+      </Flex>
+    </div>
+  );
+}
+
+/**
+ * AI 消息富内容（懒渲染版）：仅当消息进入“可视区 + 缓冲带”时渲染 AiBubbleContent；
+ * 否则渲染等高的轻量占位节点，用 IntersectionObserver 驱动状态。
+ * 外层固定节点始终由 Bubble.List 保留，不影响锚点 scrollIntoView 定位。
+ */
+const LazyAiContent = memo(function LazyAiContent({ msg, ...contentProps }) {
+  const [near, setNear] = useState(false);
+  const wrapRef = useRef(null);
+  const measureRef = useRef(null);
+  // 始终保持最新 msg，供 ResizeObserver 回调读取当前内容签名
+  const msgRef = useRef(msg);
+  msgRef.current = msg;
+
+  // 观察自身 wrapper 是否进入可视区（rootMargin 上下缓冲）
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return undefined;
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => setNear(entry.isIntersecting));
+      },
+      { rootMargin: `${LAZY_VIEW_BUFFER}px 0px` }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  // 真实渲染期间持续测量高度（流式增长也会更新），供占位复用以避免滚动跳动
+  useEffect(() => {
+    if (!near) return undefined;
+    const el = measureRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(() => {
+      const cur = msgRef.current;
+      richHeightCache.set(cur.key, { sig: contentSignature(cur), h: el.offsetHeight });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [near, msg.key]);
+
+  if (!near) {
+    const sig = contentSignature(msg);
+    const cached = richHeightCache.get(msg.key);
+    const h = cached && cached.sig === sig ? cached.h : estimateRichHeight(msg);
+    const excerpt = getLazyExcerpt(msg);
+    return (
+      <div ref={wrapRef} className="msg-lazy" style={{ minHeight: h }}>
+        {excerpt ? <span className="msg-lazy-text">{excerpt}</span> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={wrapRef} className="msg-lazy-rich">
+      <div ref={measureRef}>
+        <AiBubbleContent msg={msg} {...contentProps} />
+      </div>
+    </div>
+  );
+});
+
 /**
  * ChatMessages — 聊天消息区域
  * 使用 React.memo 包裹，只在 messages 变化时重新渲染
@@ -58,6 +320,9 @@ const ChatMessages = memo(function ChatMessages({
   const anchorLockRef = useRef(false);
   const anchorContainerRef = useRef(null);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
+
+  // 消息较多时才开启 AI 富内容懒渲染（消息少时全部真渲染，锚点定位最精确）
+  const richLazyEnabled = messages.length > 16;
 
   // ==================== 锚点定位状态 ====================
   const [activeAnchor, setActiveAnchor] = useState(null);
@@ -300,6 +565,43 @@ const ChatMessages = memo(function ChatMessages({
     };
   }, [highlightKey, messages]);
 
+  // 组装 AI 消息富内容：消息少时完整渲染；消息多时走视口懒渲染
+  const renderAiContent = useCallback(
+    (msg) => {
+      const props = {
+        msg,
+        isCancelled,
+        isLoading,
+        speakingKey,
+        feedback: feedbackMap[msg.key],
+        onFeedback,
+        onRegenerate,
+        onCopy: handleCopy,
+        onSpeak: handleSpeak,
+        onShare: handleShare,
+        onContinue,
+      };
+      return richLazyEnabled ? (
+        <LazyAiContent {...props} />
+      ) : (
+        <AiBubbleContent {...props} />
+      );
+    },
+    [
+      richLazyEnabled,
+      isCancelled,
+      isLoading,
+      speakingKey,
+      feedbackMap,
+      onFeedback,
+      onRegenerate,
+      handleCopy,
+      handleSpeak,
+      handleShare,
+      onContinue,
+    ]
+  );
+
   return (
     <main className="chat-main">
       <div className="chat-header">
@@ -361,143 +663,7 @@ const ChatMessages = memo(function ChatMessages({
                 key: msg.key,
                 className: 'chat-msg-item',
                 placement: msg.role === 'user' ? 'end' : 'start',
-                content:
-                  msg.role === 'ai' ? (
-                    <div style={{ maxWidth: '100%', display: 'flex', flexDirection: 'column' }}>
-                      {/* 深度思考区块：有 thinkContent 则展示 */}
-                      {msg.role === 'ai' && msg.thinkContent ? (
-                        <Think
-                          title="深度思考"
-                          loading={!msg.content}
-                          defaultExpanded={true}
-                          blink={!msg.content}
-                        >
-                          {msg.thinkContent}
-                        </Think>
-                      ) : null}
-                      {/* 思考中占位（think 和 content 都为空，正在等待） */}
-                      {msg.role === 'ai' && !msg.thinkContent && !msg.content ? (
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '12px 0',
-                          color: '#a855f7',
-                        }}>
-                          <Spin size="small" />
-                          <span style={{ fontSize: 13, color: '#7c3aed' }}>
-                            正在分析问题...
-                          </span>
-                        </div>
-                      ) : null}
-                      {/* 答案内容 */}
-                      <MarkdownBlock content={msg.content} />
-                      {/* 点赞 / 点踩 — 仅在 AI 回答完成后显示 */}
-
-                      <Flex alignItems='center' justify='space-between'>
-                        <Flex>
-                          {msg.role === 'ai' && msg.content && !isLoading ? (
-                            <Flex style={{
-                              marginTop: 8,
-                              paddingTop: 6,
-                            }}
-                              alignItems='center'
-                              gap={2}
-                            >
-                               <Tooltip title='复制'>
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={
-                                    <CopyOutlined />
-                                  }
-                                  onClick={() => handleCopy(msg.content)}
-                                />
-                              </Tooltip>
-                              <Tooltip title='点赞'>
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={
-                                    feedbackMap[msg.key] === 'like'
-                                      ? <LikeFilled style={{ color: '#6366f1' }} />
-                                      : <LikeOutlined />
-                                  }
-                                  onClick={() => onFeedback(msg.key, 'like')}
-                                />
-                              </Tooltip>
-                              <Tooltip title='点踩'> <Button
-                                type="text"
-                                size="small"
-                                icon={
-                                  feedbackMap[msg.key] === 'dislike'
-                                    ? <DislikeFilled style={{ color: '#ef4444' }} />
-                                    : <DislikeOutlined />
-                                }
-                                onClick={() => onFeedback(msg.key, 'dislike')}
-                              /></Tooltip>
-                              <Tooltip title='重新生成'>
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={<ReloadOutlined />}
-                                  onClick={() => onRegenerate(msg.key)}
-                                />
-                              </Tooltip>
-                              <Tooltip title='分享'>
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={<ShareAltOutlined />}
-                                  onClick={() => handleShare(msg.content)}
-                                />
-                              </Tooltip>
-                              <Dropdown
-                                menu={{
-                                  items: [
-                                    {
-                                      key: 'speak',
-                                      icon: <SoundOutlined />,
-                                      label: speakingKey === msg.key ? '停止朗读' : '朗读',
-                                    },
-                                  ],
-                                  onClick: ({ key }) => {
-                                    if (key === 'speak') handleSpeak(msg.key, msg.content);
-                                  },
-                                }}
-                                trigger={['click']}
-                                placement="bottomRight"
-                              >
-                                <Button type="text" size="small" icon={<MoreOutlined />} />
-                              </Dropdown>
-
-                            </Flex>
-                          ) : null}
-                        </Flex>
-                        <Flex>
-                          {/* 继续生成：取消后显示在回答下方 */}
-                          {isCancelled && !isLoading && (
-                            <div style={{
-                              display: 'flex',
-                              justifyContent: 'flex-start',
-                              padding: '8px 0 4px 48px',
-                            }}>
-                              <Button
-                                type="primary"
-                                size="small"
-                                icon={<RedoOutlined />}
-                                onClick={onContinue}
-                              >
-                                继续生成
-                              </Button>
-                            </div>
-                          )}
-                        </Flex>
-                      </Flex>
-                    </div>
-                  ) : (
-                    msg.content
-                  ),
+                content: msg.role === 'ai' ? renderAiContent(msg) : msg.content,
                 avatar:
                   msg.role === 'user'
                     ? <Avatar icon={<UserOutlined />} style={{ background: '#6366f1' }} />

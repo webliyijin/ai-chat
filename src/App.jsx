@@ -19,10 +19,11 @@ export default function App() {
   const {
     conversations,
     activeKey,
-    setActiveKey,
+    handleActiveChange,
     messages,
     isLoading,
     isCancelled,
+    isSwitching,
     initLoading,
     senderKey,
     forceScrollKey,
@@ -60,7 +61,7 @@ export default function App() {
           <ChatSidebar
             conversations={conversations}
             activeKey={activeKey}
-            onActiveChange={setActiveKey}
+            onActiveChange={handleActiveChange}
             initLoading={initLoading}
             onNewConversation={handleNewConversation}
             onDeleteConversation={handleDeleteConversation}
@@ -75,6 +76,7 @@ export default function App() {
             forceScrollKey={forceScrollKey}
             isCancelled={isCancelled}
             isLoading={isLoading}
+            isSwitching={isSwitching}
             onContinue={handleContinueGenerate}
             onRegenerate={handleRegenerate}
             feedbackMap={feedbackMap}

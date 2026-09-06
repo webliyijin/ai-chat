@@ -30,6 +30,8 @@ export default function useChat() {
   const [cancelledMap, setCancelledMap] = useState({});
   // 点赞/点踩反馈状态：{ messageKey: 'like' | 'dislike' }
   const [feedbackMap, setFeedbackMap] = useState({});
+  // 切换会话时正在加载的会话 key（用于消息区骨架屏兜底）
+  const [conversationLoadingKey, setConversationLoadingKey] = useState(null);
   // 重命名相关状态
   const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [renamingKey, setRenamingKey] = useState('');
@@ -43,8 +45,16 @@ export default function useChat() {
   const messages = messagesMap[activeKey] || [];
   const isLoading = loadingMap[activeKey] || false;
   const isCancelled = cancelledMap[activeKey] || false;
+  // 初始加载或切换会话加载中 → 消息区显示骨架屏
+  const isSwitching = initLoading || (conversationLoadingKey && conversationLoadingKey === activeKey);
 
-  // 初始化：加载会话列表
+  // 切换会话：同步更新 activeKey 与加载态，避免切换瞬间闪现旧内容/欢迎页
+  const handleActiveChange = useCallback((key) => {
+    setActiveKey(key);
+    setConversationLoadingKey(key);
+  }, []);
+
+  // 初始化：只加载会话列表，第一个会话的消息由下方"切换会话"effect 统一加载，避免重复请求
   useEffect(() => {
     const loadConversations = async () => {
       try {
@@ -52,27 +62,9 @@ export default function useChat() {
         if (data && data.length > 0) {
           const convs = data.map((c) => ({ key: c.id, label: c.title }));
           setConversations(convs);
-          setActiveKey(convs[0].key);
           // 标记已同步
           data.forEach((c) => syncedRef.current.add(c.id));
-          // 加载第一个会话的消息
-          const { data: msgs } = await getMessages(convs[0].key);
-          // 构建 feedback 初始状态
-          const initialFeedback = {};
-          msgs.forEach((m) => {
-            if (m.feedback) initialFeedback[m.id] = m.feedback;
-          });
-          setFeedbackMap(initialFeedback);
-          setMessagesMap((prev) => ({
-            ...prev,
-            [convs[0].key]: msgs.map((m) => ({
-              key: m.id,
-              role: m.role === 'ai' ? 'ai' : 'user',
-              content: m.content,
-              thinkContent: m.thinkContent || null,
-              thinkingProcess: m.thinkingProcess || null,
-            })),
-          }));
+          handleActiveChange(convs[0].key);
         }
       } catch (err) {
         console.error('加载会话列表失败:', err);
@@ -81,12 +73,20 @@ export default function useChat() {
       }
     };
     loadConversations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 切换会话时加载消息
+  // 切换会话：每次都重新请求消息（不使用缓存），加载期间显示骨架屏
   useEffect(() => {
-    if (!activeKey || messagesMap[activeKey]) return;
+    if (!activeKey) return;
     setForceScrollKey((k) => k + 1);
+    // 新会话尚未同步到后端，无需请求，直接展示本地消息
+    if (!syncedRef.current.has(activeKey)) {
+      setMessagesMap((prev) => ({ ...prev, [activeKey]: prev[activeKey] || [] }));
+      setConversationLoadingKey(null);
+      return;
+    }
+    setConversationLoadingKey(activeKey);
     const loadMsgs = async () => {
       try {
         const { data } = await getMessages(activeKey);
@@ -106,6 +106,9 @@ export default function useChat() {
       } catch (err) {
         console.error('加载消息失败:', err);
         setMessagesMap((prev) => ({ ...prev, [activeKey]: [] }));
+      } finally {
+        // 仅在当前 key 仍是 activeKey 时清除，避免旧请求误清新会话的加载态
+        setConversationLoadingKey((prev) => (prev === activeKey ? null : prev));
       }
     };
     loadMsgs();
@@ -487,8 +490,8 @@ export default function useChat() {
     const newKey = Date.now().toString() + Math.random().toString(36).slice(2, 8);
     setConversations((prev) => [...prev, { key: newKey, label: '新对话' }]);
     setMessagesMap((prev) => ({ ...prev, [newKey]: [] }));
-    setActiveKey(newKey);
-  }, []);
+    handleActiveChange(newKey);
+  }, [handleActiveChange]);
 
   // 删除会话
   const handleDeleteConversation = useCallback(
@@ -518,12 +521,12 @@ export default function useChat() {
           });
           if (activeKey === key) {
             const remaining = conversations.filter((c) => c.key !== key);
-            setActiveKey(remaining[0]?.key || '');
+            handleActiveChange(remaining[0]?.key || '');
           }
         },
       });
     },
-    [conversations, activeKey]
+    [conversations, activeKey, handleActiveChange]
   );
 
   // 打开重命名弹窗
@@ -575,11 +578,12 @@ export default function useChat() {
     // 状态
     conversations,
     activeKey,
-    setActiveKey,
+    handleActiveChange,
     messagesMap,
     messages,
     isLoading,
     isCancelled,
+    isSwitching,
     initLoading,
     senderKey,
     forceScrollKey,
